@@ -20,3 +20,14 @@ When('I log in to Naukri with valid credentials', async ({ naukriLoginPage }) =>
 Then('I should be logged in to Naukri successfully', async ({ naukriLoginPage }) => {
   await naukriLoginPage.expectLoggedIn();
 });
+
+When('I search for {string} jobs in {string}', async ({ naukriJobPage }, role: string, location: string) => {
+  await naukriJobPage.searchJobs(role, location);
+});
+
+Then('I apply to top {int} easy apply jobs', async ({ naukriJobPage }, count: number) => {
+  // A real Naukri application can take several seconds; the global 30-second
+  // timeout is not enough for a batch of applications.
+  test.setTimeout(10 * 60 * 1000);
+  await naukriJobPage.applyToTopJobs(count);
+});
