@@ -13,6 +13,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   use: {
     baseURL: 'https://www.naukri.com',
+  //  baseURL: 'https://www.naukri.com/mnjuser/homepage',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

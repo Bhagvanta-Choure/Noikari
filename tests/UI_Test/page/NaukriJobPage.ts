@@ -1,13 +1,41 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 export class NaukriJobPage {
-  constructor(readonly page: Page) {}
+  readonly page: Page;
+  readonly jobResultsWrapper: Locator;
+  readonly jobLinks: Locator;
+  readonly applyButton: Locator;
+  readonly applyButtonFirstOnly: Locator;
+  readonly externalApplyControl: Locator;
+  readonly nextPageLink: Locator;
+  readonly applicationDialog: Locator;
+  readonly submitButton: Locator;
+  readonly requiresAnswersText: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.jobResultsWrapper = page.locator('.srp-jobtuple-wrapper, article').first();
+    this.jobLinks = page.locator('a[href*="/job-listings-"]');
+    this.applyButton = page.getByRole('button', { name: /^(apply|apply now)$/i });
+    this.applyButtonFirstOnly = this.applyButton.first();
+    this.externalApplyControl = page.getByRole('button', {
+      name: /apply.*(company|employer|external|website|site)/i,
+    }).or(page.getByRole('link', {
+      name: /apply.*(company|employer|external|website|site)/i,
+    }));
+    this.nextPageLink = page.getByRole('link', { name: /next/i }).first();
+    this.applicationDialog = page.getByRole('dialog').last();
+    this.submitButton = this.applicationDialog.getByRole('button', {
+      name: /^(apply|submit application|continue to apply)$/i,
+    });
+    this.requiresAnswersText = page.getByText(/answer.*question|add.*answer|required question/i);
+  }
 
   async searchJobs(role: string, location: string): Promise<void> {
     const roleSlug = this.toSearchSlug(role);
     const locationSlug = this.toSearchSlug(location);
     await this.page.goto(`/${roleSlug}-jobs-in-${locationSlug}`, { waitUntil: 'domcontentloaded' });
-    await this.page.locator('.srp-jobtuple-wrapper').first().waitFor({ state: 'visible' });
+    await this.jobResultsWrapper.waitFor({ state: 'visible' });
   }
 
   /**
@@ -47,44 +75,47 @@ export class NaukriJobPage {
         if (await this.hasExternalApplication()) {
           this.logSkip(jobNumber, 'External/company website', jobLabel);
           await this.page.goto(resultsUrl, { waitUntil: 'domcontentloaded' });
+          await this.jobResultsWrapper.waitFor({ state: 'visible', timeout: 10000 });
           continue;
         }
 
-        const applyButton = this.page.getByRole('button', { name: /^(apply|apply now)$/i }).first();
-        if (!(await applyButton.isVisible())) {
+        if (!(await this.applyButtonFirstOnly.isVisible())) {
           this.logSkip(jobNumber, 'No Naukri Apply button', jobLabel);
           await this.page.goto(resultsUrl, { waitUntil: 'domcontentloaded' });
+          await this.jobResultsWrapper.waitFor({ state: 'visible', timeout: 10000 });
           continue;
         }
 
         const urlBeforeApply = this.page.url();
         this.logInfo(`Applying through Naukri: ${jobLabel}`);
-        await applyButton.click();
+        await this.applyButtonFirstOnly.click();
 
         await this.ensureStillOnNaukri(urlBeforeApply);
         await this.completeNaukriApplication();
         applied += 1;
         this.logSuccess(applied, count, jobLabel);
         await this.page.goto(resultsUrl, { waitUntil: 'domcontentloaded' });
+        // Wait for job results to load after returning to results page
+        await this.jobResultsWrapper.waitFor({ state: 'visible', timeout: 10000 });
+        
       }
 
       if (applied === count) {
         break;
       }
 
-      const nextPage = this.page.getByRole('link', { name: /next/i }).first();
-      if (!(await nextPage.isVisible())) {
+      if (!(await this.nextPageLink.isVisible())) {
         break;
       }
 
-      const nextPageUrl = await nextPage.getAttribute('href');
+      const nextPageUrl = await this.nextPageLink.getAttribute('href');
       if (!nextPageUrl) {
         break;
       }
 
       this.logInfo('Moving to the next results page.');
       await this.page.goto(nextPageUrl, { waitUntil: 'domcontentloaded' });
-      await this.page.locator('.srp-jobtuple-wrapper, article').first().waitFor();
+      await this.jobResultsWrapper.waitFor();
     }
 
     this.logSummary(applied, count, visitedJobs.size);
@@ -95,38 +126,26 @@ export class NaukriJobPage {
   }
 
   private async getJobUrls(): Promise<string[]> {
-    return this.page.locator('a[href*="/job-listings-"]').evaluateAll(links =>
+    return this.jobLinks.evaluateAll(links =>
       [...new Set(links.map(link => (link as HTMLAnchorElement).href))]
     );
   }
 
   private async hasExternalApplication(): Promise<boolean> {
-    const externalApplyControl = this.page.getByRole('button', {
-      name: /apply.*(company|employer|external|website|site)/i,
-    }).or(this.page.getByRole('link', {
-      name: /apply.*(company|employer|external|website|site)/i,
-    }));
-
-    return await externalApplyControl.isVisible();
+    return await this.externalApplyControl.isVisible();
   }
 
   private async completeNaukriApplication(): Promise<void> {
-    const applicationDialog = this.page.getByRole('dialog').last();
-    if (!(await applicationDialog.isVisible())) {
+    if (!(await this.applicationDialog.isVisible())) {
       return;
     }
 
-    const submitButton = applicationDialog.getByRole('button', {
-      name: /^(apply|submit application|continue to apply)$/i,
-    });
-
-    if (await submitButton.isVisible()) {
-      await submitButton.click();
+    if (await this.submitButton.isVisible()) {
+      await this.submitButton.click();
       await this.ensureStillOnNaukri();
     }
 
-    const requiresAnswers = this.page.getByText(/answer.*question|add.*answer|required question/i);
-    if (await requiresAnswers.isVisible()) {
+    if (await this.requiresAnswersText.isVisible()) {
       throw new Error('Naukri requires application answers. Complete them manually before rerunning this scenario.');
     }
   }
